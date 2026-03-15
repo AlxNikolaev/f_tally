@@ -1,7 +1,7 @@
 ## Interface: 120001
 ## Title: Farm Tally
 ## Notes: Tracks items gathered while farming
-## Author: Ilshe
+## Author: ilsh_ex
 ## Version: @project-version@
 ## SavedVariablesPerCharacter: FarmTallyDB
 ## IconTexture: Interface\AddOns\FarmTally\Artwork\Icon.tga
