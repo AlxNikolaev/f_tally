@@ -1,0 +1,5 @@
+package-as: FarmTally
+
+ignore:
+    - .vscode
+    - .gitignore
