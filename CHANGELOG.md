@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+- Added settings panel (Escape > Options > AddOns, or `/fta settings`)
+- Right-click minimap button to open settings
+- Toggle BoE / BoP item tracking
+- Manage tracked and excluded item filters
+- Added quality color borders for item icons and names
+- Added BoE and BoP item tracking with vendor sell value
+- Added compatibility with quick loot modifications
+
+
 ## 1.0.1
 
 - Added changelog

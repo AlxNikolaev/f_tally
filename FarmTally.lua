@@ -5,11 +5,49 @@
 ------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
+-- Class declarations
+------------------------------------------------------------------------
+
+---@class FarmTallyRow : Frame
+---@field sep Texture
+---@field icon Texture
+---@field iconBorder Texture
+---@field nameText FontString
+---@field countText FontString
+---@field qualityText FontString
+---@field goldText FontString
+---@field itemName string?
+
+---@class FarmTallyMapBtn : Button
+---@field background Texture
+---@field icon Texture
+---@field border Texture
+
+---@class FarmTallyFilterRow : Frame
+---@field text FontString
+---@field removeBtn FarmTallyRemoveBtn
+
+---@class FarmTallyRemoveBtn : Button
+---@field tex Texture
+
+---@class FarmTallyFilterContainer : Frame
+---@field rows FarmTallyFilterRow[]
+---@field title FontString?
+---@field emptyHint FontString?
+
+---@class FarmTallyFlatBtn : Button
+---@field tex Texture
+
+------------------------------------------------------------------------
 -- Constants
 ------------------------------------------------------------------------
 local ADDON_NAME    = "FarmTally"
 local TRADE_GOODS   = Enum.ItemClass.Tradegoods
 local VENDOR_TRASH  = "Vendor Trash"
+local BOE_ITEMS     = "BoE Items"
+local BOP_ITEMS     = "BoP Items"
+local BIND_ON_EQUIP = 2
+local BIND_ON_PICKUP = 1
 
 local FRAME_W       = 300
 local PAD           = 10
@@ -25,10 +63,13 @@ local SCROLL_STEP   = ROW_H
 -- State
 ------------------------------------------------------------------------
 local itemRows, itemOrder = {}, {}
+
+---@type FarmTallyRow[]
 local rowPool = {}
 local lastTickTime = GetTime()
 local timerTicker = nil
 local cachedTotalGold = 0
+local settingsCategoryID
 
 ------------------------------------------------------------------------
 -- Forward declarations
@@ -63,6 +104,12 @@ local function InitDB()
     if db.excludedNames == nil then db.excludedNames = {} end
     if db.goldRateMode == nil then db.goldRateMode = "hour" end
     if db.minimapPos == nil then db.minimapPos = 225 end
+    if db.showQualityBorder == nil then db.showQualityBorder = true end
+    if db.showQualityNameColor == nil then db.showQualityNameColor = false end
+    if db.trackBoE == nil then db.trackBoE = false end
+    if db.boeItems == nil then db.boeItems = { count = 0, copper = 0 } end
+    if db.trackBoP == nil then db.trackBoP = false end
+    if db.bopItems == nil then db.bopItems = { count = 0, copper = 0 } end
 end
 
 ------------------------------------------------------------------------
@@ -175,7 +222,9 @@ local minimapShapes = {
 
 local MINIMAP_OFFSET = 5
 
-local minimapBtn = CreateFrame("Button", "FarmTallyMinimapButton", Minimap)
+local frame = CreateFrame("Button", "FarmTallyMinimapButton", Minimap)
+---@type FarmTallyMapBtn | Button
+local minimapBtn = frame
 minimapBtn:SetSize(31, 31)
 minimapBtn:SetFrameStrata("MEDIUM")
 minimapBtn:SetFixedFrameStrata(true)
@@ -183,7 +232,7 @@ minimapBtn:SetFrameLevel(8)
 minimapBtn:SetFixedFrameLevel(true)
 minimapBtn:RegisterForClicks("anyUp")
 minimapBtn:RegisterForDrag("LeftButton")
-minimapBtn:SetHighlightTexture(136477)
+minimapBtn:SetHighlightTexture(136477) --[[@as Texture]]
 
 minimapBtn.background = minimapBtn:CreateTexture(nil, "BACKGROUND")
 minimapBtn.background:SetSize(24, 24)
@@ -246,15 +295,26 @@ minimapBtn:SetScript("OnDragStop", function(self)
     self.icon:SetSize(18, 18)
 end)
 
-minimapBtn:SetScript("OnClick", function()
-    FarmTallyDB.visible = not MainFrame:IsShown()
-    MainFrame:SetShown(FarmTallyDB.visible)
+minimapBtn:SetScript("OnClick", function(_, button)
+    if button == "RightButton" then
+        if settingsCategoryID then
+            if SettingsPanel:IsShown() then
+                HideUIPanel(SettingsPanel)
+            else
+                Settings.OpenToCategory(settingsCategoryID)
+            end
+        end
+    else
+        FarmTallyDB.visible = not MainFrame:IsShown()
+        MainFrame:SetShown(FarmTallyDB.visible)
+    end
 end)
 
 minimapBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Farm Tally")
     GameTooltip:AddLine("Click to toggle window", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Right-click to open settings", 0.7, 0.7, 0.7)
     GameTooltip:AddLine("Drag to reposition", 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end)
@@ -272,7 +332,9 @@ MainFrame.TimerText:SetPoint("LEFT")
 MainFrame.TimerText:SetText("00:00:00")
 MainFrame.TimerText:SetTextColor(0.5, 0.5, 0.5)
 
+---@return FarmTallyFlatBtn
 local function CreateFlatButton(parent, size, texture, r, g, b)
+    ---@class FarmTallyFlatBtn
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(size, size)
     btn.tex = btn:CreateTexture(nil, "ARTWORK")
@@ -282,10 +344,12 @@ local function CreateFlatButton(parent, size, texture, r, g, b)
     btn.tex:SetVertexColor(r, g, b)
     btn.tex:SetAlpha(0.8)
     btn:SetScript("OnMouseDown", function(self)
+        ---@cast self FarmTallyFlatBtn
         self.tex:ClearAllPoints()
         self.tex:SetPoint("CENTER", 1, -1)
     end)
     btn:SetScript("OnMouseUp", function(self)
+        ---@cast self FarmTallyFlatBtn
         self.tex:ClearAllPoints()
         self.tex:SetPoint("TOPLEFT")
         self.tex:SetPoint("BOTTOMRIGHT")
@@ -326,6 +390,7 @@ MainFrame.totalGoldText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNo
 MainFrame.totalGoldText:SetPoint("BOTTOMLEFT", PAD, 8)
 MainFrame.totalGoldText:SetTextColor(1, 0.82, 0, 1)
 MainFrame.totalGoldText:SetFontHeight(11)
+
 
 local btnRate = CreateFrame("Button", nil, MainFrame)
 btnRate:SetPoint("BOTTOMRIGHT", -PAD, 4)
@@ -402,6 +467,14 @@ local function UpdateSummary()
             if value then cachedTotalGold = cachedTotalGold + value end
         end
     end
+    local boe = FarmTallyDB.boeItems
+    if boe and boe.copper > 0 then
+        cachedTotalGold = cachedTotalGold + boe.copper
+    end
+    local bop = FarmTallyDB.bopItems
+    if bop and bop.copper > 0 then
+        cachedTotalGold = cachedTotalGold + bop.copper
+    end
     local vt = FarmTallyDB.vendorTrash
     if vt and vt.copper > 0 then
         cachedTotalGold = cachedTotalGold + vt.copper
@@ -413,24 +486,32 @@ end
 ------------------------------------------------------------------------
 -- Row pool
 ------------------------------------------------------------------------
+
+---@return FarmTallyRow
 local function AcquireRow()
+    ---@type FarmTallyRow?
     local row = table.remove(rowPool)
     if row then
         row:Show()
         return row
     end
 
-    row = CreateFrame("Frame", nil, ListFrame)
+
+    local rowFrame = CreateFrame("Frame", nil, ListFrame)
+    ---@cast frame FarmTallyRow
+    row = rowFrame
     row:SetSize(CONTENT_W, ROW_H - 4)
     row:EnableMouse(true)
     row:EnableMouseWheel(true)
     row:SetScript("OnMouseWheel", OnScrollWheel)
     row:SetScript("OnMouseUp", function(self, button)
+        ---@cast self FarmTallyRow
         if button == "RightButton" and self.itemName and ExcludeItem then
             ExcludeItem(self.itemName)
         end
     end)
     row:SetScript("OnEnter", function(self)
+        ---@cast self FarmTallyRow
         if self.itemName then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(self.itemName, 1, 1, 1)
@@ -448,8 +529,14 @@ local function AcquireRow()
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ICON_SIZE, ICON_SIZE)
-    row.icon:SetPoint("LEFT")
+    row.icon:SetPoint("LEFT", 2, 0)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    row.iconBorder = row:CreateTexture(nil, "OVERLAY")
+    row.iconBorder:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2, 2)
+    row.iconBorder:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2, -2)
+    row.iconBorder:SetTexture("Interface\\Common\\WhiteIconFrame")
+    row.iconBorder:Hide()
 
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.nameText:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -2)
@@ -484,19 +571,42 @@ local function ReleaseRow(row)
     table.insert(rowPool, row)
 end
 
-local function PlaceRow(row, idx, name, icon, nameColor)
+---@param row FarmTallyRow
+---@param idx integer
+---@param name string
+---@param icon any
+---@param nameColor number[]?
+---@param quality integer?
+local function PlaceRow(row, idx, name, icon, nameColor, quality)
     row:SetPoint("TOPLEFT", 0, -(idx - 1) * ROW_H)
     row.itemName = name
     row.icon:SetTexture(icon or "Interface\\ICONS\\INV_Misc_Fish_02")
     row.nameText:SetText(name)
-    row.nameText:SetTextColor(unpack(nameColor or {1, 1, 1}))
+    if nameColor then
+        row.nameText:SetTextColor(unpack(nameColor))
+    elseif FarmTallyDB.showQualityNameColor and quality and quality > 1 then
+        local r, g, b = GetItemQualityColor(quality)
+        row.nameText:SetTextColor(r, g, b)
+    else
+        row.nameText:SetTextColor(1, 1, 1)
+    end
     row.sep:SetShown(idx > 1)
+    if FarmTallyDB.showQualityBorder and quality and quality > 1 then
+        local r, g, b = GetItemQualityColor(quality)
+        ---@cast r number
+        ---@cast g number
+        ---@cast b number
+        row.iconBorder:SetVertexColor(r, g, b)
+        row.iconBorder:Show()
+    else
+        row.iconBorder:Hide()
+    end
     itemOrder[idx] = name
     itemRows[name] = row
 end
 
 ------------------------------------------------------------------------
--- RefreshHUD — rebuilds sorted display
+-- RefreshHUD
 ------------------------------------------------------------------------
 RefreshHUD = function()
     -- Release all rows
@@ -520,10 +630,32 @@ RefreshHUD = function()
     for _, entry in ipairs(sorted) do
         local row = AcquireRow()
         local idx = #itemOrder + 1
-        PlaceRow(row, idx, entry.name, entry.data.icon)
+        PlaceRow(row, idx, entry.name, entry.data.icon, nil, entry.data.quality)
         row.countText:SetText(tostring(entry.data.amount))
         row.qualityText:SetText(FormatQuality(entry.data))
         row.goldText:SetText(entry.gold and FormatGold(entry.gold) or "")
+    end
+
+    -- BoE items section
+    local boe = FarmTallyDB.boeItems
+    if boe and boe.count > 0 then
+        local row = AcquireRow()
+        local idx = #itemOrder + 1
+        PlaceRow(row, idx, BOE_ITEMS, "Interface\\ICONS\\INV_Sword_04", {0.5, 0.7, 1.0})
+        row.countText:SetText(tostring(boe.count))
+        row.qualityText:SetText("")
+        row.goldText:SetText(FormatGold(boe.copper))
+    end
+
+    -- BoP items section
+    local bop = FarmTallyDB.bopItems
+    if bop and bop.count > 0 then
+        local row = AcquireRow()
+        local idx = #itemOrder + 1
+        PlaceRow(row, idx, BOP_ITEMS, "Interface\\ICONS\\INV_Misc_Key_04", {0.9, 0.3, 0.3})
+        row.countText:SetText(tostring(bop.count))
+        row.qualityText:SetText("")
+        row.goldText:SetText(FormatGold(bop.copper))
     end
 
     -- Vendor trash always last
@@ -573,6 +705,8 @@ local function Reset()
     dbg("Reset: rows=" .. #itemOrder)
     FarmTallyDB.count = {}
     FarmTallyDB.vendorTrash = { count = 0, copper = 0 }
+    FarmTallyDB.boeItems = { count = 0, copper = 0 }
+    FarmTallyDB.bopItems = { count = 0, copper = 0 }
     FarmTallyDB.excludedNames = {}
     FarmTallyDB.totalTime = 0
     FarmTallyDB.qAtlas = {}
@@ -610,6 +744,10 @@ ExcludeItem = function(name)
     FarmTallyDB.excludedNames[name] = true
     if name == VENDOR_TRASH then
         FarmTallyDB.vendorTrash = { count = 0, copper = 0 }
+    elseif name == BOE_ITEMS then
+        FarmTallyDB.boeItems = { count = 0, copper = 0 }
+    elseif name == BOP_ITEMS then
+        FarmTallyDB.bopItems = { count = 0, copper = 0 }
     else
         FarmTallyDB.count[name] = nil
     end
@@ -679,16 +817,250 @@ btnRate:SetScript("OnLeave", function(self)
 end)
 
 ------------------------------------------------------------------------
+-- Settings panel
+------------------------------------------------------------------------
+local function InitSettings()
+    local category = Settings.RegisterVerticalLayoutCategory("Farm Tally")
+
+    -- Toggle: Quality border coloring
+    do
+        local function GetValue() return FarmTallyDB.showQualityBorder end
+        local function SetValue(value)
+            FarmTallyDB.showQualityBorder = value
+            RefreshHUD()
+        end
+        local setting = Settings.RegisterProxySetting(category,
+            "FARMTALLY_QUALITY_BORDER", Settings.VarType.Boolean,
+            "Quality Icon Borders", Settings.Default.True,
+            GetValue, SetValue)
+        Settings.CreateCheckbox(category, setting,
+            "Show colored borders around item icons based on item quality.")
+    end
+
+    -- Toggle: Name coloring by quality
+    do
+        local function GetValue() return FarmTallyDB.showQualityNameColor end
+        local function SetValue(value)
+            FarmTallyDB.showQualityNameColor = value
+            RefreshHUD()
+        end
+        local setting = Settings.RegisterProxySetting(category,
+            "FARMTALLY_QUALITY_NAME_COLOR", Settings.VarType.Boolean,
+            "Color Item Names by Quality", Settings.Default.False,
+            GetValue, SetValue)
+        Settings.CreateCheckbox(category, setting,
+            "Color item name text according to quality. Vendor Trash always stays grey.")
+    end
+
+    -- Toggle: BoE tracking
+    do
+        local function GetValue() return FarmTallyDB.trackBoE end
+        local function SetValue(value)
+            FarmTallyDB.trackBoE = value
+            RefreshHUD()
+        end
+        local setting = Settings.RegisterProxySetting(category,
+            "FARMTALLY_TRACK_BOE", Settings.VarType.Boolean,
+            "Track Bind on Equip Items", Settings.Default.False,
+            GetValue, SetValue)
+        Settings.CreateCheckbox(category, setting,
+            "Track BoE items as a separate section with their vendor sell value.")
+    end
+
+    -- Toggle: BoP tracking
+    do
+        local function GetValue() return FarmTallyDB.trackBoP end
+        local function SetValue(value)
+            FarmTallyDB.trackBoP = value
+            RefreshHUD()
+        end
+        local setting = Settings.RegisterProxySetting(category,
+            "FARMTALLY_TRACK_BOP", Settings.VarType.Boolean,
+            "Track Bind on Pickup Items", Settings.Default.False,
+            GetValue, SetValue)
+        Settings.CreateCheckbox(category, setting,
+            "Track BoP items as a separate section with their vendor sell value.")
+    end
+
+    -- Filter management subcategory (canvas with scroll)
+    local filterFrame = CreateFrame("Frame")
+    filterFrame:SetSize(600, 100)
+
+    local filterScroll = CreateFrame("ScrollFrame", nil, filterFrame)
+    filterScroll:SetPoint("TOPLEFT", 0, -4)
+    filterScroll:SetPoint("TOPRIGHT", 0, -4)
+    filterScroll:SetHeight(1) -- resized in RefreshFilters
+
+    local filterContent = CreateFrame("Frame", nil, filterScroll)
+    filterContent:SetWidth(580)
+    filterContent:SetHeight(1)
+    filterScroll:SetScrollChild(filterContent)
+    filterScroll:EnableMouseWheel(true)
+    filterScroll:SetScript("OnMouseWheel", function(self, delta)
+        local cur = self:GetVerticalScroll()
+        local maxS = math.max(0, filterContent:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(cur - delta * 24, maxS)))
+    end)
+
+    ---@type FarmTallyFilterRow[]
+    local filterRowPool = {}
+
+    ---@param parent FarmTallyFilterContainer
+    local function ReleaseFilterRows(parent)
+        for i = #parent.rows, 1, -1 do
+            local row = table.remove(parent.rows, i)
+            row:Hide()
+            row:ClearAllPoints()
+            table.insert(filterRowPool, row)
+        end
+    end
+
+    ---@param parent FarmTallyFilterContainer
+    ---@return FarmTallyFilterRow
+    local function AcquireFilterRow(parent)
+        local row = table.remove(filterRowPool)
+        if not row then
+            ---@class FarmTallyFilterRow
+            row = CreateFrame("Frame", nil, parent)
+            row:SetHeight(22)
+
+            row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            row.text:SetPoint("LEFT", 4, 0)
+            row.text:SetJustifyH("LEFT")
+
+            ---@class FarmTallyRemoveBtn
+            row.removeBtn = CreateFrame("Button", nil, row)
+            row.removeBtn:SetSize(16, 16)
+            row.removeBtn:SetPoint("RIGHT", -4, 0)
+            row.removeBtn.tex = row.removeBtn:CreateTexture(nil, "ARTWORK")
+            row.removeBtn.tex:SetAllPoints()
+            row.removeBtn.tex:SetTexture("Interface\\Buttons\\UI-StopButton")
+            row.removeBtn.tex:SetDesaturated(true)
+            row.removeBtn.tex:SetVertexColor(0.8, 0.2, 0.2)
+            row.removeBtn:SetScript("OnEnter", function(self)
+                ---@cast self FarmTallyRemoveBtn
+                self.tex:SetDesaturated(false)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Remove")
+                GameTooltip:Show()
+            end)
+            row.removeBtn:SetScript("OnLeave", function(self)
+                ---@cast self FarmTallyRemoveBtn
+                self.tex:SetDesaturated(true)
+                GameTooltip:Hide()
+            end)
+        end
+        row:SetParent(parent)
+        row:Show()
+        return row
+    end
+
+    ---@param parent FarmTallyFilterContainer
+    ---@param title string
+    ---@param tbl table<string, boolean>
+    ---@param onRemove fun(name: string)
+    ---@param emptyText string
+    local function BuildList(parent, title, tbl, onRemove, emptyText)
+        parent.rows = parent.rows or {}
+        ReleaseFilterRows(parent)
+
+        local yOff = 0
+
+        -- Section title
+        if not parent.title then
+            parent.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            parent.title:SetPoint("TOPLEFT", 10, 0)
+        end
+        parent.title:SetText(title)
+        yOff = yOff - 24
+
+        local any = false
+        for name in pairs(tbl) do
+            any = true
+            local row = AcquireFilterRow(parent)
+            row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOff)
+            row:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
+            row.text:SetText(name)
+            row.removeBtn:SetScript("OnClick", function()
+                onRemove(name)
+            end)
+            table.insert(parent.rows, row)
+            yOff = yOff - 24
+        end
+
+        if not any then
+            if not parent.emptyHint then
+                parent.emptyHint = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                parent.emptyHint:SetPoint("TOPLEFT", 14, -24)
+            end
+            parent.emptyHint:SetText(emptyText)
+            parent.emptyHint:Show()
+            yOff = yOff - 20
+        elseif parent.emptyHint then
+            parent.emptyHint:Hide()
+        end
+
+        parent:SetHeight(math.abs(yOff) + 8)
+    end
+
+    -- Container frames for each list
+    ---@type FarmTallyFilterContainer
+    local trackedContainer = CreateFrame("Frame", nil, filterContent) --[[@as FarmTallyFilterContainer]]
+    trackedContainer:SetPoint("TOPLEFT", 0, -10)
+    trackedContainer:SetPoint("RIGHT")
+    trackedContainer:SetHeight(40)
+
+    ---@type FarmTallyFilterContainer
+    local excludedContainer = CreateFrame("Frame", nil, filterContent) --[[@as FarmTallyFilterContainer]]
+    excludedContainer:SetPoint("TOPLEFT", trackedContainer, "BOTTOMLEFT", 0, -12)
+    excludedContainer:SetPoint("RIGHT")
+    excludedContainer:SetHeight(40)
+
+    local function RefreshFilters()
+        BuildList(trackedContainer, "Tracked Items (persistent)",
+            FarmTallyDB.trackedNames,
+            function(name)
+                FarmTallyDB.trackedNames[name] = nil
+                RefreshFilters()
+            end,
+            "(none -- trade goods are tracked automatically)")
+
+        BuildList(excludedContainer, "Excluded Items (this session)",
+            FarmTallyDB.excludedNames,
+            function(name)
+                FarmTallyDB.excludedNames[name] = nil
+                RefreshFilters()
+            end,
+            "(none)")
+
+        -- Resize to fit content
+        local totalH = (trackedContainer:GetHeight() or 40) + 12 + (excludedContainer:GetHeight() or 40) + 20
+        filterContent:SetHeight(totalH)
+        local maxVisible = 400
+        local scrollH = math.min(totalH, maxVisible)
+        filterScroll:SetHeight(scrollH)
+        filterFrame:SetHeight(scrollH + 8)
+    end
+
+    filterFrame:SetScript("OnShow", RefreshFilters)
+
+    Settings.RegisterCanvasLayoutSubcategory(category, filterFrame, "Filters")
+    Settings.RegisterAddOnCategory(category)
+    settingsCategoryID = category:GetID()
+end
+
+------------------------------------------------------------------------
 -- Events
 ------------------------------------------------------------------------
 local EventFrame = CreateFrame("Frame")
 EventFrame:RegisterEvent("ADDON_LOADED")
 EventFrame:RegisterEvent("PLAYER_LOGIN")
-EventFrame:RegisterEvent("LOOT_OPENED")
+EventFrame:RegisterEvent("LOOT_READY")
 EventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         if ... ~= ADDON_NAME then return end
         InitDB()
+        InitSettings()
         MainFrame:ClearAllPoints()
         MainFrame:SetPoint(unpack(FarmTallyDB.pos))
         MainFrame.TimerText:SetText(FormatTime(FarmTallyDB.totalTime))
@@ -703,24 +1075,36 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         RefreshHUD()
 
-    elseif event == "LOOT_OPENED" and not FarmTallyDB.paused then
+    elseif event == "LOOT_READY" and not FarmTallyDB.paused then
         for slot = 1, GetNumLootItems() do
             local link = GetLootSlotLink(slot)
             if link then
                 local _, _, lootQuantity = GetLootSlotInfo(slot)
-                local name, _, quality, _, _, _, _, _, _, icon, sellPrice, classID = GetItemInfo(link)
+                local name, _, quality, _, _, _, _, _, _, icon, sellPrice, classID, _, bindType = GetItemInfo(link)
                 if not name then
                     name = link:match("%[(.-)%]")
                     local id = tonumber(link:match("item:(%d+)"))
                     if id then _, _, _, _, icon, classID = GetItemInfoInstant(id) end
                 end
-                dbg("Loot:", tostring(name), "q=" .. tostring(quality), "class=" .. tostring(classID))
+                dbg("Loot:", tostring(name), "q=" .. tostring(quality), "class=" .. tostring(classID), "bind=" .. tostring(bindType))
 
                 if quality == 0 and sellPrice and sellPrice > 0 and not FarmTallyDB.excludedNames[VENDOR_TRASH] then
                     local vt = FarmTallyDB.vendorTrash
                     local qty = lootQuantity or 1
                     vt.count = vt.count + qty
                     vt.copper = vt.copper + (sellPrice * qty)
+
+                elseif FarmTallyDB.trackBoE and bindType == BIND_ON_EQUIP and sellPrice and sellPrice > 0 and not FarmTallyDB.excludedNames[BOE_ITEMS] then
+                    local boe = FarmTallyDB.boeItems
+                    local qty = lootQuantity or 1
+                    boe.count = boe.count + qty
+                    boe.copper = boe.copper + (sellPrice * qty)
+
+                elseif FarmTallyDB.trackBoP and bindType == BIND_ON_PICKUP and sellPrice and sellPrice > 0 and quality and quality > 0 and not FarmTallyDB.excludedNames[BOP_ITEMS] then
+                    local bop = FarmTallyDB.bopItems
+                    local qty = lootQuantity or 1
+                    bop.count = bop.count + qty
+                    bop.copper = bop.copper + (sellPrice * qty)
 
                 elseif name and (classID == TRADE_GOODS or FarmTallyDB.trackedNames[name]) and not FarmTallyDB.excludedNames[name] then
                     local data = FarmTallyDB.count[name]
@@ -729,6 +1113,7 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
                         FarmTallyDB.count[name] = data
                     end
                     data.amount = data.amount + (lootQuantity or 1)
+                    data.quality = quality or data.quality
 
                     local itemID = tonumber(link:match("item:(%d+)"))
                     data.itemID = data.itemID or itemID
@@ -816,6 +1201,10 @@ SlashCmdList["FARMTALLY"] = function(msg)
                 print("  - |cff999999" .. name .. "|r")
             end
         end
+    elseif command == "settings" or command == "options" then
+        if settingsCategoryID then
+            Settings.OpenToCategory(settingsCategoryID)
+        end
     else
         print("|cff00ff00FarmTally:|r Commands:")
         print("  /fta — toggle window")
@@ -825,6 +1214,7 @@ SlashCmdList["FARMTALLY"] = function(msg)
         print("  /fta remove [item] — stop tracking custom item")
         print("  /fta exclude [item] — exclude from session")
         print("  /fta list — show tracked & excluded items")
+        print("  /fta settings — open settings panel")
         print("  /fta debug — toggle debug logging")
     end
 end

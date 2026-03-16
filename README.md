@@ -15,16 +15,14 @@ A lightweight farming session tracker. Automatically counts trade goods (fish, o
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `/fta` | Toggle tracker window |
-| `/fta reset` | Reset current session |
-| `/fta rate` | Toggle gold/min and gold/hr |
-| `/fta add [item]` | Track a custom item (shift-click to insert link) |
-| `/fta remove [item]` | Stop tracking a custom item |
-| `/fta exclude [item]` | Exclude an item from current session |
-| `/fta list` | Show custom tracked and excluded items |
-| `/fta debug` | Toggle debug logging |
+- `/fta`  Toggle tracker window 
+- `/fta reset`  Reset current session 
+- `/fta rate`  Toggle gold/min and gold/hr 
+- `/fta add [item]`  Track a custom item (shift-click to insert link) 
+- `/fta remove [item]`  Stop tracking a custom item 
+- `/fta exclude [item]`  Exclude an item from current session 
+- `/fta list`  Show custom tracked and excluded items 
+- `/fta debug`  Toggle debug logging 
 
 ## Notes
 

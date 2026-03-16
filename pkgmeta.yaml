@@ -1,5 +1,7 @@
 package-as: FarmTally
 
+manual-changelog: CHANGELOG.md
+
 ignore:
     - .vscode
     - .gitignore
