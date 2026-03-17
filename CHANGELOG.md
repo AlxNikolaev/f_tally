@@ -1,5 +1,11 @@
 # Changelog
 
+# Changelog
+
+## 1.1.1
+
+- Fixed packaging issue which caused addon to crash
+
 ## 1.1.0
 
 - Items grouped by collapsible categories (click to expand/collapse)

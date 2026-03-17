@@ -309,11 +309,13 @@ SlashCmdList["FARMTALLY"] = function(msg)
                 "height=" .. math.floor(MainFrame:GetHeight()),
                 "visible=" .. tostring(MainFrame:IsShown()) .. "|r")
         end
+        return
     elseif command == "mock" then
         LoadMockData()
-    elseif
+        return
+    end
     --@end-do-not-package@
-    command == "reset" then
+    if command == "reset" then
         ns.Reset()
     elseif command == "rate" then
         FarmTallyDB.goldRateMode = FarmTallyDB.goldRateMode == "min" and "hour" or "min"

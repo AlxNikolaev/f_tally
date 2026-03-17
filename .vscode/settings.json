@@ -18,5 +18,8 @@
         "SlashCmdList",
         "Settings",
         "SettingsPanel"
+    ],
+    "Lua.diagnostics.disable": [
+        "assign-type-mismatch"
     ]
 }
