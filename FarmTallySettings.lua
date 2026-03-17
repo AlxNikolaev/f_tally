@@ -5,7 +5,8 @@
 local _, ns = ...
 
 function ns.InitSettings()
-    local category = Settings.RegisterVerticalLayoutCategory("Farm Tally")
+    local category, layout = Settings.RegisterVerticalLayoutCategory("Farm Tally")
+    if not category then return end
     Settings.RegisterAddOnCategory(category)
     ns.settingsCategoryID = category:GetID()
 end

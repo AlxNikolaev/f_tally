@@ -14,99 +14,87 @@ local BIND_ON_PICKUP = ns.BIND_ON_PICKUP
 local dbg            = ns.dbg
 local FormatTime     = ns.FormatTime
 local MainFrame      = ns.MainFrame
+local EventFrame
 
 ------------------------------------------------------------------------
--- Loot-slot-based processing
--- Uses loot window data to know WHAT was looted (no bag-diff race conditions),
--- then looks up bag links for correct vendor pricing.
+-- Loot processing
+-- Uses loot link captured from LOOT_READY for item info and tracking.
+-- Sell prices for equipment come from bag links (loot links give scaled
+-- values), resolved by a deferred UpdatePricesFromBags pass.
 ------------------------------------------------------------------------
-local MAX_RETRIES = 3
-local RETRY_DELAY = 0.3
-
-local function ProcessLootSlots(pendingItems, attempt)
-    attempt = attempt or 1
+local function ProcessLootItems(pendingItems)
     local changed = false
-    local missing = {}
-    dbg("ProcessLoot: items=" .. #pendingItems .. " attempt=" .. attempt)
+    local needsPriceUpdate = false
+    dbg("ProcessLoot: items=" .. #pendingItems)
 
     for _, pending in ipairs(pendingItems) do
         local itemID = pending.itemID
         local added = pending.qty
+        local link = pending.link
 
-        -- Find item in bags for bag link (correct vendor price)
-        local bagLink
-        for bag = 0, 5 do
-            for slot = 1, C_Container.GetContainerNumSlots(bag) do
-                local cInfo = C_Container.GetContainerItemInfo(bag, slot)
-                if cInfo and cInfo.itemID == itemID then
-                    bagLink = C_Container.GetContainerItemLink(bag, slot)
-                    break
-                end
-            end
-            if bagLink then break end
+        local name, _, quality, _, _, _, itemSubType, _, _, icon, sellPrice, classID, _, bindType = C_Item.GetItemInfo(link)
+        if not name then
+            name = string.match(link, "%[(.-)%]")
+            _, _, _, _, icon, classID = C_Item.GetItemInfoInstant(itemID)
         end
+        dbg("  Loot:", tostring(name), "qty=" .. added, "q=" .. tostring(quality),
+            "class=" .. tostring(classID), "bind=" .. tostring(bindType), "sell=" .. tostring(sellPrice))
 
-        if not bagLink then
-            missing[#missing + 1] = pending
-            dbg("  -> Not in bags:", tostring(itemID))
+        if not name or not classID then
+            dbg("  -> No info for itemID:", tostring(itemID))
         else
-            local name, _, quality, _, _, _, itemSubType, _, _, icon, sellPrice, classID, _, bindType = C_Item.GetItemInfo(bagLink)
-            if not name then
-                name = string.match(bagLink, "%[(.-)%]")
-                _, _, _, _, icon, classID = C_Item.GetItemInfoInstant(itemID)
+            local shouldTrack = false
+            if quality == 0 and sellPrice and sellPrice > 0 then
+                shouldTrack = not FarmTallyDB.excludedNames[VENDOR_TRASH] and not FarmTallyDB.excludedNames[name]
+            elseif classID == TRADE_GOODS
+                or FarmTallyDB.trackedNames[name]
+                or (bindType == BIND_ON_EQUIP and not FarmTallyDB.excludedNames[BOE_ITEMS])
+                or (bindType == BIND_ON_PICKUP and quality and quality > 0 and not FarmTallyDB.excludedNames[BOP_ITEMS]) then
+                shouldTrack = not FarmTallyDB.excludedNames[name]
             end
-            dbg("Bag:", tostring(name), "qty=" .. added, "q=" .. tostring(quality),
-                "class=" .. tostring(classID), "bind=" .. tostring(bindType), "sell=" .. tostring(sellPrice))
 
-            if name then
-                local shouldTrack = false
-                if quality == 0 and sellPrice and sellPrice > 0 then
-                    shouldTrack = not FarmTallyDB.excludedNames[VENDOR_TRASH] and not FarmTallyDB.excludedNames[name]
-                elseif classID == TRADE_GOODS
-                    or FarmTallyDB.trackedNames[name]
-                    or (bindType == BIND_ON_EQUIP and not FarmTallyDB.excludedNames[BOE_ITEMS])
-                    or (bindType == BIND_ON_PICKUP and quality and quality > 0 and not FarmTallyDB.excludedNames[BOP_ITEMS]) then
-                    shouldTrack = not FarmTallyDB.excludedNames[name]
+            if shouldTrack then
+                local data = FarmTallyDB.count[name]
+                local isNew = not data
+                if not data then
+                    data = {icon = icon, amount = 0}
+                    FarmTallyDB.count[name] = data
                 end
-
-                if shouldTrack then
-                    local data = FarmTallyDB.count[name]
-                    local isNew = not data
-                    if not data then
-                        data = {icon = icon, amount = 0}
-                        FarmTallyDB.count[name] = data
-                    end
-                    data.amount = data.amount + added
-                    data.quality = quality or data.quality
-                    data.itemSubType = itemSubType or data.itemSubType
-                    if quality == 0 then data.isVendorTrash = true end
-                    if bindType == BIND_ON_EQUIP then data.isBoE = true end
-                    if bindType == BIND_ON_PICKUP then data.isBoP = true end
-                    data.itemID = data.itemID or itemID
-                    data.itemLink = bagLink
-                    if sellPrice and sellPrice > 0 then
-                        data.sellPrice = sellPrice
-                    end
-
-                    local tag = data.isVendorTrash and "VT" or data.isBoE and "BoE" or data.isBoP and "BoP" or ""
-                    dbg("  -> Tracked:", name, isNew and "(new)" or "(update)", "amt=" .. data.amount, "id=" .. tostring(itemID), tag)
-
-                    if C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityInfo then
-                        local ok, qualityInfo = pcall(C_TradeSkillUI.GetItemReagentQualityInfo, bagLink)
-                        if ok and qualityInfo then
-                            local tier = qualityInfo.quality
-                            data.q = data.q or {0, 0, 0}
-                            data.q[tier] = (data.q[tier] or 0) + added
-                            data.qIDs = data.qIDs or {}
-                            data.qIDs[tier] = itemID
-                            FarmTallyDB.qAtlas = FarmTallyDB.qAtlas or {}
-                            FarmTallyDB.qAtlas[tier] = qualityInfo.iconChat
-                        end
-                    end
-                    changed = true
+                data.amount = data.amount + added
+                data.quality = quality or data.quality
+                data.itemSubType = itemSubType or data.itemSubType
+                if quality == 0 then data.isVendorTrash = true end
+                if bindType == BIND_ON_EQUIP then data.isBoE = true end
+                if bindType == BIND_ON_PICKUP then data.isBoP = true end
+                data.itemID = data.itemID or itemID
+                data.itemLink = link
+                -- Only trust loot-link sell price for trade goods.
+                -- All other items (equipment, junk weapons/armor) have level-scaled
+                -- prices in loot links — defer to bag link lookup.
+                if sellPrice and sellPrice > 0 and classID == TRADE_GOODS then
+                    data.sellPrice = sellPrice
                 else
-                    dbg("  -> Skipped:", tostring(name))
+                    needsPriceUpdate = true
                 end
+
+                local tag = data.isVendorTrash and "VT" or data.isBoE and "BoE" or data.isBoP and "BoP" or ""
+                dbg("  -> Tracked:", name, isNew and "(new)" or "(update)", "amt=" .. data.amount, "id=" .. tostring(itemID), tag)
+
+                if C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityInfo then
+                    local ok, qualityInfo = pcall(C_TradeSkillUI.GetItemReagentQualityInfo, link)
+                    if ok and qualityInfo then
+                        local tier = qualityInfo.quality
+                        data.q = data.q or {0, 0, 0}
+                        data.q[tier] = (data.q[tier] or 0) + added
+                        data.qIDs = data.qIDs or {}
+                        data.qIDs[tier] = itemID
+                        FarmTallyDB.qAtlas = FarmTallyDB.qAtlas or {}
+                        FarmTallyDB.qAtlas[tier] = qualityInfo.iconChat
+                    end
+                end
+                changed = true
+            else
+                dbg("  -> Skipped:", tostring(name))
             end
         end
     end
@@ -114,15 +102,75 @@ local function ProcessLootSlots(pendingItems, attempt)
     if changed then
         dbg("ProcessLoot: done, refreshing HUD")
         ns.RefreshHUD()
-    end
-
-    if #missing > 0 and attempt < MAX_RETRIES then
-        dbg("ProcessLoot: " .. #missing .. " missing, retry " .. (attempt + 1) .. " in " .. RETRY_DELAY .. "s")
-        C_Timer.After(RETRY_DELAY, function() ProcessLootSlots(missing, attempt + 1) end)
-    elseif #missing > 0 then
-        dbg("ProcessLoot: " .. #missing .. " items never found in bags")
-    elseif not changed then
+        if needsPriceUpdate and not ns.pendingPriceUpdate then
+            ns.pendingPriceUpdate = true
+            priceRetryCount = 0
+            EventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        end
+    elseif #pendingItems > 0 then
         dbg("ProcessLoot: no new tracked items")
+    end
+end
+
+------------------------------------------------------------------------
+-- Deferred price update — scans bags for correct sell prices on
+-- equipment items (loot links give level-scaled values).
+-- Triggered by BAG_UPDATE_DELAYED after items land in bags.
+------------------------------------------------------------------------
+local PRICE_MAX_RETRIES = 3
+local priceRetryCount = 0
+
+function ns.CleanupPriceUpdate()
+    if ns.pendingPriceUpdate then
+        EventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+        ns.pendingPriceUpdate = false
+    end
+    priceRetryCount = 0
+end
+
+function ns.UpdatePricesFromBags()
+    dbg("PriceUpdate: scanning bags")
+    local updated = false
+    local stillMissing = false
+    for name, data in pairs(FarmTallyDB.count) do
+        if data.itemID and not data.sellPrice then
+            local found = false
+            for bag = 0, 5 do
+                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                    local cInfo = C_Container.GetContainerItemInfo(bag, slot)
+                    if cInfo and cInfo.itemID == data.itemID then
+                        found = true
+                        local bagLink = C_Container.GetContainerItemLink(bag, slot)
+                        if bagLink then
+                            local _, _, _, _, _, _, _, _, _, _, sellPrice = C_Item.GetItemInfo(bagLink)
+                            dbg("PriceUpdate:", name, "sell=" .. tostring(sellPrice))
+                            if sellPrice and sellPrice > 0 then
+                                data.sellPrice = sellPrice
+                                data.itemLink = bagLink
+                                updated = true
+                            end
+                        end
+                        break
+                    end
+                end
+                if data.sellPrice then break end
+            end
+            if not found then
+                stillMissing = true
+                dbg("PriceUpdate:", name, "not in bags")
+            end
+        end
+    end
+    if not stillMissing or priceRetryCount >= PRICE_MAX_RETRIES then
+        EventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+        ns.pendingPriceUpdate = false
+        priceRetryCount = 0
+    else
+        priceRetryCount = priceRetryCount + 1
+        dbg("PriceUpdate: " .. priceRetryCount .. "/" .. PRICE_MAX_RETRIES .. " retries, waiting for bags")
+    end
+    if updated then
+        ns.RefreshHUD()
     end
 end
 
@@ -156,7 +204,7 @@ end
 ------------------------------------------------------------------------
 -- Events
 ------------------------------------------------------------------------
-local EventFrame = CreateFrame("Frame")
+EventFrame = CreateFrame("Frame")
 local lootProcessed = false
 local pendingLootItems = nil
 
@@ -183,13 +231,16 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         ns.RefreshHUD()
 
+    elseif event == "BAG_UPDATE_DELAYED" and ns.pendingPriceUpdate then
+        ns.UpdatePricesFromBags()
+
     elseif event == "LOOT_CLOSED" then
         dbg("LOOT_CLOSED")
         lootProcessed = false
-        if pendingLootItems then
-            local items = pendingLootItems
-            pendingLootItems = nil
-            C_Timer.After(0.3, function() ProcessLootSlots(items) end)
+        local items = pendingLootItems
+        pendingLootItems = nil
+        if items and #items > 0 then
+            ProcessLootItems(items)
         end
 
     elseif event == "LOOT_READY" and lootProcessed then
@@ -197,7 +248,6 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "LOOT_READY" and not lootProcessed and not FarmTallyDB.paused then
         lootProcessed = true
-        -- Capture loot window contents — exact items and quantities
         pendingLootItems = {}
         local numItems = GetNumLootItems()
         dbg("LOOT_READY: slots=" .. numItems)
@@ -209,7 +259,7 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
                 local name = string.match(link, "%[(.-)%]")
                 dbg("  Slot " .. slot .. ":", tostring(name), "qty=" .. tostring(lootQuantity))
                 if itemID then
-                    pendingLootItems[#pendingLootItems + 1] = { itemID = itemID, qty = lootQuantity or 1 }
+                    pendingLootItems[#pendingLootItems + 1] = { itemID = itemID, qty = lootQuantity or 1, link = link }
                 end
             end
         end

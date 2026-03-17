@@ -26,6 +26,7 @@ ns.ICON_SIZE     = 28
 ns.CONTENT_W     = ns.FRAME_W - ns.PAD * 2
 ns.MAX_ROWS      = 8
 ns.SCROLL_STEP   = ns.ROW_H
+ns.FALLBACK_ICON = 134400 -- INV_Misc_QuestionMark
 
 ------------------------------------------------------------------------
 -- Debug
@@ -50,13 +51,12 @@ function ns.InitDB()
     if db.pos == nil then db.pos = {"CENTER", 0, 0} end
     if db.qAtlas == nil then db.qAtlas = {} end
     if db.trackedNames == nil then db.trackedNames = {} end
-    if db.vendorTrash == nil then db.vendorTrash = { count = 0, copper = 0, items = {} } end
-    if db.vendorTrash.items == nil then db.vendorTrash.items = {} end
+    db.vendorTrash = nil -- stale field, removed in 1.2
     if db.collapsed == nil then db.collapsed = {} end
     if db.excludedNames == nil then db.excludedNames = {} end
     if db.goldRateMode == nil then db.goldRateMode = "hour" end
     if db.minimapPos == nil then db.minimapPos = 225 end
-    if db.priceMode == nil or type(db.priceMode) == "string" then db.priceMode = {} end
+    if db.priceMode == nil or type(db.priceMode) == "string" then db.priceMode = {} end -- migrated from string in 1.1
 end
 
 ------------------------------------------------------------------------
@@ -100,6 +100,7 @@ function ns.SafeGetPrice(itemID)
     if not itemID or not ns.HasAuctionator() then return nil end
     local ok, price = pcall(Auctionator.API.v1.GetAuctionPriceByItemID, ns.ADDON_NAME, itemID)
     if ok then return price end
+    ns.dbg("SafeGetPrice failed:", itemID, price)
     return nil
 end
 
@@ -114,8 +115,7 @@ function ns.GetVendorPrice(data)
     if not data.itemID then return nil end
     local sellPrice = data.sellPrice
     if not sellPrice then
-        local _, _, _, _, _, _, _, _, _, _, sp = C_Item.GetItemInfo(data.itemID)
-        sellPrice = sp
+        sellPrice = select(11, C_Item.GetItemInfo(data.itemID))
     end
     if sellPrice and sellPrice > 0 then
         return sellPrice * data.amount

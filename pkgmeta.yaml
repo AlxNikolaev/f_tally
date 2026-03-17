@@ -2,8 +2,9 @@ package-as: FarmTally
 
 manual-changelog: 
     filename: CHANGELOG.md
-    markup-type: markdown
+    markup-type: plain
 
 ignore:
     - .vscode
     - .gitignore
+    - f_tally.toc

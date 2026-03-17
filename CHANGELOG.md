@@ -1,12 +1,14 @@
-# Changelog
+1.1.2
 
-# Changelog
+- Fixed equipment items (BoE, BoP, vendor trash) showing incorrect vendor prices
+- Improved compatibility with fast-loot addons (FasterLoot, etc.)
+- Faster item tracking on loot
 
-## 1.1.1
+1.1.1
 
 - Fixed packaging issue which caused addon to crash
 
-## 1.1.0
+1.1.0
 
 - Items grouped by collapsible categories (click to expand/collapse)
 - Shift+click category to cycle price display (AH / Vendor / Both)
@@ -17,15 +19,13 @@
 - Gold values rounded to gold-only when above 1g
 - Redesigned widget layout with help tooltip
 
-
-## 1.0.1
+1.0.1
 
 - Added changelog
 
-## 1.0.0
+1.0.0
 
-Initial release.
-
+- Initial release
 - Automatic trade goods tracking (fish, ore, herbs, leather, cloth)
 - Vendor trash aggregation with sell value
 - Quality tier breakdown (Q1/Q2/Q3)
@@ -33,7 +33,6 @@ Initial release.
 - Gold per hour / gold per minute toggle
 - Auctionator price integration
 - Right-click to exclude items from session
-- Custom item tracking via `/fta add`
+- Custom item tracking via /fta add
 - Scrollable item list
 - Minimap button
-- CurseForge packaging support

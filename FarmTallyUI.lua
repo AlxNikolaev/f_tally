@@ -2,7 +2,7 @@
 -- FarmTally - UI
 -- Main frame, minimap button, row pool, display logic, button scripts.
 ------------------------------------------------------------------------
-local _, ns = ...
+local ADDON_NAME, ns = ...
 
 -- Pull frequently used ns members into locals
 local VENDOR_TRASH  = ns.VENDOR_TRASH
@@ -64,6 +64,13 @@ MainFrame:SetScript("OnDragStop", function(self)
 end)
 ns.MainFrame = MainFrame
 
+--@do-not-package@
+local devBadge = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+devBadge:SetPoint("TOP", MainFrame, "TOP", 0, -2)
+devBadge:SetText("|cffff6600DEV|r")
+devBadge:SetFontHeight(9)
+--@end-do-not-package@
+
 ------------------------------------------------------------------------
 -- Minimap button
 ------------------------------------------------------------------------
@@ -109,7 +116,7 @@ minimapBtn.background:SetTexture(136467)
 minimapBtn.icon = minimapBtn:CreateTexture(nil, "ARTWORK")
 minimapBtn.icon:SetSize(18, 18)
 minimapBtn.icon:SetPoint("CENTER")
-minimapBtn.icon:SetTexture("Interface\\AddOns\\FarmTally\\Artwork\\Icon")
+minimapBtn.icon:SetTexture("Interface\\AddOns\\" .. ADDON_NAME .. "\\Artwork\\Icon")
 
 minimapBtn.border = minimapBtn:CreateTexture(nil, "OVERLAY")
 minimapBtn.border:SetSize(50, 50)
@@ -412,7 +419,9 @@ local function AcquireRow()
             GameTooltip:Show()
         end
     end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnLeave", function(self)
+        if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
+    end)
 
     row.sep = row:CreateTexture(nil, "ARTWORK")
     row.sep:SetHeight(1)
@@ -496,7 +505,7 @@ end
 local function PlaceRow(row, yOffset, name, icon, nameColor, quality)
     row:SetPoint("TOPLEFT", 0, -yOffset)
     row.itemName = name
-    row.icon:SetTexture(icon or "Interface\\ICONS\\INV_Misc_Fish_02")
+    row.icon:SetTexture(icon or ns.FALLBACK_ICON)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     row.icon:Show()
     row.nameText:SetText(name)
@@ -567,11 +576,8 @@ ns.RefreshHUD = function()
     -- Sort items within each category
     for _, cat in pairs(categories) do
         table.sort(cat.items, function(a, b)
-            if a.gold ~= b.gold then
-                if a.gold and b.gold then return a.gold > b.gold end
-                if a.gold then return true end
-                return false
-            end
+            local ag, bg = (a.gold or 0), (b.gold or 0)
+            if ag ~= bg then return ag > bg end
             if a.data.amount ~= b.data.amount then return a.data.amount > b.data.amount end
             return a.name < b.name
         end)
@@ -676,13 +682,13 @@ end
 function ns.Reset()
     dbg("Reset: rows=" .. #itemOrder)
     FarmTallyDB.count = {}
-    FarmTallyDB.vendorTrash = { count = 0, copper = 0, items = {} }
     FarmTallyDB.collapsed = {}
     FarmTallyDB.excludedNames = {}
     FarmTallyDB.totalTime = 0
     FarmTallyDB.qAtlas = {}
     FarmTallyDB.paused = true
     ns.StopTimer()
+    ns.CleanupPriceUpdate()
     for _, row in pairs(itemRows) do ReleaseRow(row) end
     itemRows, itemOrder = {}, {}
     MainFrame.TimerText:SetText("00:00:00")
