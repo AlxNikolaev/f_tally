@@ -2,13 +2,14 @@
 
 ## 1.1.0
 
-- Added settings panel (Escape > Options > AddOns, or `/fta settings`)
-- Right-click minimap button to open settings
-- Toggle BoE / BoP item tracking
-- Manage tracked and excluded item filters
-- Added quality color borders for item icons and names
-- Added BoE and BoP item tracking with vendor sell value
-- Added compatibility with quick loot modifications
+- Items grouped by collapsible categories (click to expand/collapse)
+- Shift+click category to cycle price display (AH / Vendor / Both)
+- Automatic BoE, BoP and vendor trash tracking with vendor sell value
+- Quality color borders and names
+- Fixed vendor price calculation for scaled items
+- Fixed item tracking with fast-loot addons
+- Gold values rounded to gold-only when above 1g
+- Redesigned widget layout with help tooltip
 
 
 ## 1.0.1

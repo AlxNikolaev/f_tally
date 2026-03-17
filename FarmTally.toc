@@ -6,4 +6,7 @@
 ## SavedVariablesPerCharacter: FarmTallyDB
 ## IconTexture: Interface\AddOns\FarmTally\Artwork\Icon.tga
 
-FarmTally.lua
+FarmTallyCore.lua
+FarmTallyUI.lua
+FarmTallySettings.lua
+FarmTally_Main.lua
