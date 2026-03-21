@@ -57,6 +57,7 @@ function ns.InitDB()
     if db.goldRateMode == nil then db.goldRateMode = "hour" end
     if db.minimapPos == nil then db.minimapPos = 225 end
     if db.priceMode == nil or type(db.priceMode) == "string" then db.priceMode = {} end -- migrated from string in 1.1
+    if db.rawGold == nil then db.rawGold = 0 end
 end
 
 ------------------------------------------------------------------------

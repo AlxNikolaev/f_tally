@@ -207,11 +207,16 @@ end
 EventFrame = CreateFrame("Frame")
 local lootProcessed = false
 local pendingLootItems = nil
+local lastMoney = GetMoney()
+local lootActive = false
 
 EventFrame:RegisterEvent("ADDON_LOADED")
 EventFrame:RegisterEvent("PLAYER_LOGIN")
 EventFrame:RegisterEvent("LOOT_READY")
 EventFrame:RegisterEvent("LOOT_CLOSED")
+EventFrame:RegisterEvent("LOOT_OPENED")
+EventFrame:RegisterEvent("PLAYER_MONEY")
+
 EventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         if ... ~= ADDON_NAME then return end
@@ -226,6 +231,7 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
         self:UnregisterEvent("ADDON_LOADED")
 
     elseif event == "PLAYER_LOGIN" then
+        lastMoney = GetMoney()
         if not FarmTallyDB.paused then
             ns.StartTimer()
         end
@@ -233,6 +239,18 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "BAG_UPDATE_DELAYED" and ns.pendingPriceUpdate then
         ns.UpdatePricesFromBags()
+
+    elseif event == "PLAYER_MONEY" and not FarmTallyDB.paused then
+        local current = GetMoney()
+        local diff = current - lastMoney
+        lastMoney = current
+        if diff > 0 and lootActive then
+            dbg("Loot gold:", diff)
+            FarmTallyDB.rawGold = (FarmTallyDB.rawGold or 0) + diff
+            ns.UpdateGoldRate()
+            ns.RefreshHUD()
+        end
+        lootActive = false
 
     elseif event == "LOOT_CLOSED" then
         dbg("LOOT_CLOSED")
@@ -243,6 +261,9 @@ EventFrame:SetScript("OnEvent", function(self, event, ...)
             ProcessLootItems(items)
         end
 
+    elseif event == "LOOT_OPENED" then
+        dbg("LOOT_OPENED")
+        lootActive = true
     elseif event == "LOOT_READY" and lootProcessed then
         dbg("LOOT_READY: blocked (duplicate)")
 

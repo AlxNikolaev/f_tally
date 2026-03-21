@@ -276,6 +276,21 @@ MainFrame.totalGoldText:SetPoint("LEFT", btnReset, "RIGHT", 4, 0)
 MainFrame.totalGoldText:SetTextColor(1, 0.82, 0, 1)
 MainFrame.totalGoldText:SetFontHeight(11)
 
+MainFrame.rawGoldText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+MainFrame.rawGoldText:SetPoint("LEFT", MainFrame.totalGoldText, "RIGHT", 10, 0)
+MainFrame.rawGoldText:SetTextColor(1, 0.82, 0, 0.8)
+MainFrame.rawGoldText:SetFontHeight(11)
+
+MainFrame.rawGoldText:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Raw Gold")
+    GameTooltip:AddLine("Gold actually looted from mobs/items", 0.7, 0.7, 0.7, true)
+    GameTooltip:Show()
+end)
+MainFrame.rawGoldText:SetScript("OnLeave", function(self)
+    GameTooltip:Hide()
+end)
+
 local btnRate = CreateFrame("Button", nil, MainFrame)
 btnRate:SetPoint("BOTTOMRIGHT", -PAD, 4)
 btnRate:SetSize(130, 20)
@@ -353,8 +368,11 @@ local function UpdateSummary()
         local value = GetItemValue(data)
         if value then cachedTotalGold = cachedTotalGold + value end
     end
+    cachedTotalGold = cachedTotalGold + FarmTallyDB.rawGold
     MainFrame.totalGoldText:SetText(cachedTotalGold > 0 and FormatGold(cachedTotalGold) or "")
     UpdateGoldRate()
+    local raw = FarmTallyDB.rawGold or 0
+    MainFrame.rawGoldText:SetText(raw > 0 and ("(" .. FormatGold(raw) .. ")") or "")
 end
 
 ------------------------------------------------------------------------
@@ -693,8 +711,10 @@ function ns.Reset()
     itemRows, itemOrder = {}, {}
     MainFrame.TimerText:SetText("00:00:00")
     MainFrame.totalGoldText:SetText("")
+    MainFrame.rawGoldText:SetText("")
     btnRate.text:SetText("")
     cachedTotalGold = 0
+    FarmTallyDB.rawGold = 0
     ScrollFrame:SetVerticalScroll(0)
     UpdateFrameHeight()
     ns.ApplyPauseVisuals()
